@@ -18,108 +18,94 @@ const defaultProfile = {
     github: ''
 };
 
-// Helper pour charger les données de base (profile)
-const loadBaseData = async () => {
-    const profileFromDb = await Profile.findOne().lean();
-    const profile = profileFromDb ? profileFromDb : defaultProfile;
-    return { profile };
+// Helper : charger le profil
+const getProfile = async () => {
+    const profile = await Profile.findOne().lean();
+    return profile || defaultProfile;
 };
 
-class PublicController {
+// Helper : charger une collection triée
+const getCollection = (Model) => Model.find().sort({ order: 1, createdAt: -1 }).lean();
+
+// Helper : wrapper try/catch pour les routes async
+const asyncHandler = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+
+// Helper : render une page avec le profil
+const renderPage = async (res, view, title, extraData = {}) => {
+    const profile = await getProfile();
+    res.render(view, { title, profile, ...extraData });
+};
+
+module.exports = {
     // Page d'accueil
-    home = async (req, res, next) => {
-        try {
-            const { profile } = await loadBaseData();
-            const experiences = await Experience.find().sort({ order: 1, createdAt: -1 }).lean();
-            const formations = await Formation.find().sort({ order: 1, createdAt: -1 }).lean();
-            const hobbies = await Hobby.find().sort({ order: 1, createdAt: -1 }).lean();
-            res.render('public/home', { title: 'Accueil', profile, experiences, formations, hobbies });
-        } catch (err) {
-            next(err);
-        }
-    };
+    home: asyncHandler(async (req, res) => {
+        const [profile, experiences, formations, hobbies] = await Promise.all([
+            getProfile(),
+            getCollection(Experience),
+            getCollection(Formation),
+            getCollection(Hobby)
+        ]);
+        res.render('public/home', { title: 'Accueil', profile, experiences, formations, hobbies });
+    }),
 
     // Page expériences
-    experience = async (req, res, next) => {
-        try {
-            const { profile } = await loadBaseData();
-            const experiences = await Experience.find().sort({ order: 1, createdAt: -1 }).lean();
-            res.render('public/experience', { title: 'Expériences', profile, experiences });
-        } catch (err) {
-            next(err);
-        }
-    };
+    experience: asyncHandler(async (req, res) => {
+        await renderPage(res, 'public/experience', 'Expériences', {
+            experiences: await getCollection(Experience)
+        });
+    }),
 
     // Page formations
-    formation = async (req, res, next) => {
-        try {
-            const { profile } = await loadBaseData();
-            const formations = await Formation.find().sort({ order: 1, createdAt: -1 }).lean();
-            res.render('public/formation', { title: 'Formation', profile, formations });
-        } catch (err) {
-            next(err);
-        }
-    };
+    formation: asyncHandler(async (req, res) => {
+        await renderPage(res, 'public/formation', 'Formation', {
+            formations: await getCollection(Formation)
+        });
+    }),
 
     // Page loisirs
-    loisirs = async (req, res, next) => {
-        try {
-            const { profile } = await loadBaseData();
-            const hobbies = await Hobby.find().sort({ order: 1, createdAt: -1 }).lean();
-            res.render('public/loisirs', { title: 'Loisirs', profile, hobbies });
-        } catch (err) {
-            next(err);
-        }
-    };
+    loisirs: asyncHandler(async (req, res) => {
+        await renderPage(res, 'public/loisirs', 'Loisirs', {
+            hobbies: await getCollection(Hobby)
+        });
+    }),
 
     // Page contact (GET)
-    showContact = async (req, res, next) => {
-        try {
-            const { profile } = await loadBaseData();
-            res.render('public/contact', { title: 'Contact', profile, form: {}, success: null, error: null });
-        } catch (err) {
-            next(err);
-        }
-    };
+    showContact: asyncHandler(async (req, res) => {
+        await renderPage(res, 'public/contact', 'Contact', {
+            form: {}, success: null, error: null
+        });
+    }),
 
     // Page contact (POST)
-    submitContact = async (req, res, next) => {
-        try {
-            const { profile } = await loadBaseData();
-            const { name, email, message } = req.body;
+    submitContact: asyncHandler(async (req, res) => {
+        const profile = await getProfile();
+        const { name, email, message } = req.body;
 
-            if (!name || !email || !message) {
-                return res.status(400).render('public/contact', {
-                    title: 'Contact',
-                    profile,
-                    form: { name, email, message },
-                    success: null,
-                    error: 'Merci de remplir tous les champs.'
-                });
-            }
-
-            await Message.create({
-                nom: name,
-                email,
-                message,
-                sujet: 'Message depuis le formulaire de contact',
-                date: new Date().toISOString(),
-                dateLisible: new Date().toLocaleString('fr-FR'),
-                lu: false,
-                repondu: false
+        if (!name || !email || !message) {
+            return res.status(400).render('public/contact', {
+                title: 'Contact', profile,
+                form: { name, email, message },
+                success: null,
+                error: 'Merci de remplir tous les champs.'
             });
-
-            return res.render('public/contact', {
-                title: 'Contact',
-                profile,
-                form: {},
-                success: 'Message envoyé. Merci, nous vous répondrons dès que possible.',
-                error: null
-            });
-        } catch (err) {
-            next(err);
         }
-    };
-}
 
-module.exports = new PublicController();
+        await Message.create({
+            nom: name,
+            email,
+            message,
+            sujet: 'Message depuis le formulaire de contact',
+            date: new Date().toISOString(),
+            dateLisible: new Date().toLocaleString('fr-FR'),
+            lu: false,
+            repondu: false
+        });
+
+        res.render('public/contact', {
+            title: 'Contact', profile,
+            form: {},
+            success: 'Message envoyé. Merci !',
+            error: null
+        });
+    })
+};

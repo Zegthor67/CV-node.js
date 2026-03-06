@@ -1,177 +1,147 @@
 const CV = require('../models/CV');
 const Message = require('../models/Message');
 
-class AdminController {
-    // --- DASHBOARD ---
-    dashboard = async (req, res) => {
-        try {
-            const cv = await CV.findOne();
-            const messageCount = await Message.countDocuments();
-            const unreadCount = await Message.countDocuments({ lu: false });
-            res.render('admin/dashboard', {
-                title: 'Administration',
-                cv,
-                messageCount,
-                unreadCount
+// Helper : wrapper async pour éviter les try/catch répétés
+const asyncHandler = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+
+// Helper : flash messages
+const flash = (req, type, message) => { req.session.flash = { type, message }; };
+const flashSuccess = (req, message) => flash(req, 'success', message);
+const flashError = (req, message) => flash(req, 'error', message);
+
+// Helper : charger le CV
+const getCV = () => CV.findOne();
+
+// Helper : render une page admin
+const renderAdmin = (res, view, title, data = {}) => res.render(`admin/${view}`, { title, ...data });
+
+// Helper : CRUD générique pour les sous-documents du CV
+const createCrudHandlers = (config) => {
+    const { field, name, viewList, viewNew, redirect, isArray = false } = config;
+
+    return {
+        list: asyncHandler(async (req, res) => {
+            const cv = await getCV();
+            renderAdmin(res, viewList, `Gérer les ${name}`, {
+                [field]: cv ? cv[field] : []
             });
-        } catch (error) {
-            res.render('admin/dashboard', {
-                title: 'Administration',
-                cv: null,
-                messageCount: 0,
-                unreadCount: 0
-            });
-        }
-    };
+        }),
 
-    // --- EXPERIENCES ---
-    listExperiences = async (req, res) => {
-        const cv = await CV.findOne();
-        res.render('admin/experiences', {
-            title: 'G\u00e9rer les Exp\u00e9riences',
-            experiences: cv ? cv.experiences : []
-        });
-    };
+        newForm: (req, res) => {
+            renderAdmin(res, viewNew, `Ajouter ${name.slice(0, -1)}`);
+        },
 
-    newExperienceForm = (req, res) => {
-        res.render('admin/experience-new', { title: 'Ajouter une Exp\u00e9rience' });
-    };
-
-    createExperience = async (req, res) => {
-        try {
-            let cv = await CV.findOne();
+        create: asyncHandler(async (req, res) => {
+            const cv = await getCV();
             if (!cv) {
-                req.session.flash = { type: 'error', message: 'CV non trouv\u00e9. Cr\u00e9ez d\'abord un CV.' };
-                return res.redirect('/admin/experiences');
+                flashError(req, 'CV non trouvé. Créez d\'abord un CV.');
+                return res.redirect(redirect);
             }
-            cv.experiences.push(req.body);
+
+            // Pour les loisirs (tableau de strings), on push juste le nom
+            isArray ? cv[field].push(req.body.nom) : cv[field].push(req.body);
             await cv.save();
-            req.session.flash = { type: 'success', message: 'Exp\u00e9rience ajout\u00e9e' };
-            res.redirect('/admin/experiences');
-        } catch (error) {
-            req.session.flash = { type: 'error', message: error.message };
-            res.redirect('/admin/experiences/new');
-        }
-    };
 
-    deleteExperience = async (req, res) => {
-        try {
-            const cv = await CV.findOne();
-            cv.experiences.pull({ _id: req.params.id });
-            await cv.save();
-            req.session.flash = { type: 'success', message: 'Exp\u00e9rience supprim\u00e9e' };
-        } catch (error) {
-            req.session.flash = { type: 'error', message: error.message };
-        }
-        res.redirect('/admin/experiences');
-    };
+            flashSuccess(req, `${name.slice(0, -1)} ajouté(e)`);
+            res.redirect(redirect);
+        }),
 
-    // --- FORMATIONS ---
-    listFormations = async (req, res) => {
-        const cv = await CV.findOne();
-        res.render('admin/formations', {
-            title: 'G\u00e9rer les Formations',
-            formations: cv ? cv.formation : []
-        });
-    };
-
-    newFormationForm = (req, res) => {
-        res.render('admin/formation-new', { title: 'Ajouter une Formation' });
-    };
-
-    createFormation = async (req, res) => {
-        try {
-            let cv = await CV.findOne();
-            if (!cv) {
-                req.session.flash = { type: 'error', message: 'CV non trouv\u00e9. Cr\u00e9ez d\'abord un CV.' };
-                return res.redirect('/admin/formations');
-            }
-            cv.formation.push(req.body);
-            await cv.save();
-            req.session.flash = { type: 'success', message: 'Formation ajout\u00e9e' };
-            res.redirect('/admin/formations');
-        } catch (error) {
-            req.session.flash = { type: 'error', message: error.message };
-            res.redirect('/admin/formations/new');
-        }
-    };
-
-    deleteFormation = async (req, res) => {
-        try {
-            const cv = await CV.findOne();
-            cv.formation.pull({ _id: req.params.id });
-            await cv.save();
-            req.session.flash = { type: 'success', message: 'Formation supprim\u00e9e' };
-        } catch (error) {
-            req.session.flash = { type: 'error', message: error.message };
-        }
-        res.redirect('/admin/formations');
-    };
-
-    // --- LOISIRS ---
-    listLoisirs = async (req, res) => {
-        const cv = await CV.findOne();
-        res.render('admin/loisirs', {
-            title: 'G\u00e9rer les Loisirs',
-            loisirs: cv ? cv.loisirs : []
-        });
-    };
-
-    newLoisirForm = (req, res) => {
-        res.render('admin/loisir-new', { title: 'Ajouter un Loisir' });
-    };
-
-    createLoisir = async (req, res) => {
-        try {
-            let cv = await CV.findOne();
-            if (!cv) {
-                req.session.flash = { type: 'error', message: 'CV non trouv\u00e9. Cr\u00e9ez d\'abord un CV.' };
-                return res.redirect('/admin/loisirs');
-            }
-            cv.loisirs.push(req.body.nom);
-            await cv.save();
-            req.session.flash = { type: 'success', message: 'Loisir ajout\u00e9' };
-            res.redirect('/admin/loisirs');
-        } catch (error) {
-            req.session.flash = { type: 'error', message: error.message };
-            res.redirect('/admin/loisirs/new');
-        }
-    };
-
-    deleteLoisir = async (req, res) => {
-        try {
-            const cv = await CV.findOne();
-            const index = parseInt(req.params.id);
-            if (cv && index >= 0 && index < cv.loisirs.length) {
-                cv.loisirs.splice(index, 1);
+        delete: asyncHandler(async (req, res) => {
+            const cv = await getCV();
+            if (cv) {
+                if (isArray) {
+                    // Pour les loisirs, suppression par index
+                    const index = parseInt(req.params.id);
+                    if (index >= 0 && index < cv[field].length) {
+                        cv[field].splice(index, 1);
+                    }
+                } else {
+                    // Pour les sous-documents, suppression par _id
+                    cv[field].pull({ _id: req.params.id });
+                }
                 await cv.save();
-                req.session.flash = { type: 'success', message: 'Loisir supprim\u00e9' };
+                flashSuccess(req, `${name.slice(0, -1)} supprimé(e)`);
             }
-        } catch (error) {
-            req.session.flash = { type: 'error', message: error.message };
-        }
-        res.redirect('/admin/loisirs');
+            res.redirect(redirect);
+        })
     };
+};
 
-    // --- MESSAGES ---
-    listMessages = async (req, res) => {
+// ==================== HANDLERS ====================
+
+// Expériences
+const experienceHandlers = createCrudHandlers({
+    field: 'experiences',
+    name: 'Expériences',
+    viewList: 'experiences',
+    viewNew: 'experience-new',
+    redirect: '/admin/experiences'
+});
+
+// Formations
+const formationHandlers = createCrudHandlers({
+    field: 'formation',
+    name: 'Formations',
+    viewList: 'formations',
+    viewNew: 'formation-new',
+    redirect: '/admin/formations'
+});
+
+// Loisirs
+const loisirHandlers = createCrudHandlers({
+    field: 'loisirs',
+    name: 'Loisirs',
+    viewList: 'loisirs',
+    viewNew: 'loisir-new',
+    redirect: '/admin/loisirs',
+    isArray: true
+});
+
+// ==================== EXPORTS ====================
+
+module.exports = {
+    // Dashboard
+    dashboard: asyncHandler(async (req, res) => {
+        const [cv, messageCount, unreadCount] = await Promise.all([
+            getCV(),
+            Message.countDocuments(),
+            Message.countDocuments({ lu: false })
+        ]);
+        renderAdmin(res, 'dashboard', 'Administration', { cv, messageCount, unreadCount });
+    }),
+
+    // Expériences
+    listExperiences: experienceHandlers.list,
+    newExperienceForm: experienceHandlers.newForm,
+    createExperience: experienceHandlers.create,
+    deleteExperience: experienceHandlers.delete,
+
+    // Formations
+    listFormations: formationHandlers.list,
+    newFormationForm: formationHandlers.newForm,
+    createFormation: formationHandlers.create,
+    deleteFormation: formationHandlers.delete,
+
+    // Loisirs
+    listLoisirs: loisirHandlers.list,
+    newLoisirForm: loisirHandlers.newForm,
+    createLoisir: loisirHandlers.create,
+    deleteLoisir: loisirHandlers.delete,
+
+    // Messages
+    listMessages: asyncHandler(async (req, res) => {
         const messages = await Message.find().sort({ createdAt: -1 });
-        res.render('admin/messages', {
-            title: 'Messages',
-            messages
-        });
-    };
+        renderAdmin(res, 'messages', 'Messages', { messages });
+    }),
 
-    markMessageRead = async (req, res) => {
+    markMessageRead: asyncHandler(async (req, res) => {
         await Message.findByIdAndUpdate(req.params.id, { lu: true });
         res.redirect('/admin/messages');
-    };
+    }),
 
-    deleteMessage = async (req, res) => {
+    deleteMessage: asyncHandler(async (req, res) => {
         await Message.findByIdAndDelete(req.params.id);
-        req.session.flash = { type: 'success', message: 'Message supprim\u00e9' };
+        flashSuccess(req, 'Message supprimé');
         res.redirect('/admin/messages');
-    };
-}
-
-module.exports = new AdminController();
+    })
+};
